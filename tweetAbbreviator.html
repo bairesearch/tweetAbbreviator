@@ -1,0 +1,405 @@
+<!--
+/*******************************************************************************
+ *
+ * No License
+ * 
+ * This work is under exclusive copyright (c) Baxter AI (baxterai.com). 
+ * Nobody else can use, copy, distribute, or modify this work without being 
+ * at risk of take-downs, shake-downs, or litigation. 
+ * 
+ * By publishing this source code in a public repository on GitHub, Terms of 
+ * Service have been accepted by which Baxter AI have allowed others to view 
+ * and fork their repository.
+ * 
+ * If you find software that doesn't have a license, that generally means you 
+ * have no permission from the creators of the software to use, modify, or 
+ * share the software. Although a code host such as GitHub may allow you to 
+ * view and fork the code, this does not imply that you are permitted to use, 
+ * modify, or share the software for any purpose.
+ *
+ * This notice has been derived from https://choosealicense.com/no-permission 
+ * (https://web.archive.org/web/20180312144938/https://choosealicense.com/no-permission)
+ *
+ *******************************************************************************/
+ -->
+<html>
+<head>
+	<title>
+	Tweet Abbreviator
+	</title>
+	<script src="wordDictionaryPrevalances.txt"></script>
+	<script>
+		
+		var wordDictionaryPrevalancesFileName = 'wordDictionaryPrevalances.txt';
+		var minCharLength = 6;	//only words >= this are abbreviated
+		var minPrevalence = 100;
+		var dictionarySearchMaxDistance = 100;	//def: 100	//must be greater than the maximum number of word forms per lemma
+		var minCharLengthAbbreviate = 4;	//minimum length of abbreviated word
+		var noTolerance = true;		//this ignores tolerance values (the only requirement is that the current word is more prevalent than all alternate options)
+		var minAmbiguityTolerance = 10;		//if !limitCharacters, then this tolerance value will be used
+		var maxAmbiguityTolerance = 1;		//def: 1	//max ambiguity tolerance - if this is set to less than 1 then sentences can be generated where abbreviated words can be confused with words that are more prevalent than the original word	//0 and negative values are treated as decimal places; 0->0.9, -1 -> 0.8, -2 -> 0.7
+		var alwaysMinimiseNumCharacters = true;
+		
+		var dictionaryList = new Map();
+		var dictionaryListKeysArray = [];
+			
+		function javascriptInitialise()
+		{
+			//window.alert("javascriptInitialise");
+			
+			list = wordDictionaryPrevalances.split("\n");
+
+			lineIndex = 0;
+						
+			for(var i = 0; i < list.length; i++)
+			{
+				item = list[i];
+				var [word, prevalence] = item.split("\t");
+				prevalenceInt = parseInt(prevalence);
+				var dictionaryEntryObject = {id:lineIndex, word:word, prevalence:prevalenceInt};
+								
+				if(!dictionaryList.has(word))	//required because of repeats where a lemma = a word variation
+				{
+					dictionaryList.set(word, dictionaryEntryObject);
+					lineIndex++;
+				}
+			}
+			
+			dictionaryListKeysArray = Array.from(dictionaryList.keys());	//is this structure memory stable?
+		}
+			
+		function NA()
+		{		
+		}
+		
+		function toggleFieldVisibility(sourceFieldID, targetFieldID)
+		{
+			var sourceField = document.getElementById(sourceFieldID);
+			var targetField = document.getElementById(targetFieldID);
+			
+			if(sourceField.checked == true)
+			{
+				targetField.disabled = false;
+			}
+			else
+			{
+				targetField.disabled = true;
+			}
+
+		}
+	
+		function generateTextAbbreviation(sourceFieldID, targetFieldID, limitCharactersFieldID, maxCharactersFieldID)
+		{
+			if(!alwaysMinimiseNumCharacters)
+			{
+				var limitCharactersField = document.getElementById(limitCharactersFieldID);
+				var maxCharactersField = document.getElementById(maxCharactersFieldID);
+				var maxCharacters = maxCharactersField.value;
+			}
+			
+			var sourceField = document.getElementById(sourceFieldID);
+			var targetField = document.getElementById(targetFieldID);
+			
+			var targetFieldContents = "";
+			var sourceContents = sourceField.value;
+			
+			var stillSearchingToleranceLevels = true;
+			var abbreviatedContentFinal = "";
+						
+			if(sourceContents == "")
+			{
+				targetContents = "error: please copy and paste original text content to above field";
+			}
+			else
+			{	
+
+				var [wordArray, delimiterArray] = generateWordAndDelimiterArray(sourceContents);	//let {wordArray, delimiterArray}
+
+				//window.alert("generateTextAbbreviation debug: sourceContents: " + sourceContents);
+				//window.alert("generateTextAbbreviation debug: wordArray.length: " + wordArray.length);
+
+				for(var t = minAmbiguityTolerance; t >= maxAmbiguityTolerance; t--)
+				{
+					if(stillSearchingToleranceLevels)
+					{						
+						let tolerance = t;
+						if(t < 1)
+						{
+							tolerance = (10+(t-1))/10;	//0->0.9, -1 -> 0.8, -2 -> 0.7
+						}
+
+						//window.alert("generateTextAbbreviation debug: t: " + t + ", tolerance = " + tolerance);
+
+						let wordArrayAbbreviated = wordArray.slice(); //clones the array and returns a reference to a new array
+						let foundAtLeastOneAbbreviationAtToleranceLevel = false;
+						
+						for(var w = 0; w < wordArray.length; w++)
+						{	
+
+							word = wordArray[w];
+							
+							//window.alert("generateWordAndDelimiterArray debug: word: " + word);
+
+							word = word.toLowerCase();
+							if(word.length >= minCharLength)
+							{
+								if(dictionaryList.has(word))
+								{
+									//dictionaryEntryObject = dictionaryList[word];
+									dictionaryEntryObject = dictionaryList.get(word);
+
+									let dictionaryEntryIndex = dictionaryEntryObject.id;
+									//window.alert("generateTextAbbreviation debug: w: " + w + ", word = " + word);
+
+
+									dictionaryIndexSearchMin = Math.max(0, dictionaryEntryIndex-dictionarySearchMaxDistance);
+									dictionaryIndexSearchMax = Math.min(dictionaryListKeysArray.length-1, dictionaryEntryIndex+dictionarySearchMaxDistance);
+
+									let stillSearchingSubwordLengths = true;
+									let subWordLengthFinal = word.length;
+									let foundValidSubword = false;
+
+									//window.alert("generateTextAbbreviation debug: word: " + word + ", dictionaryEntryObject.word = " + dictionaryEntryObject.word + ", dictionaryEntryObject.id = " + dictionaryEntryObject.id);
+
+
+									for(var subWordLength = word.length-1; subWordLength >= minCharLengthAbbreviate; subWordLength--)	//for decreasing number of characters (c):
+									{
+										wordCompressed = word.substring(0, subWordLength);	//generate compressed word variation (v)
+
+										if(stillSearchingSubwordLengths)
+										{
+											//window.alert("generateTextAbbreviation debug: stillSearchingSubwordLengths, subWordLength = " + subWordLength);
+
+											/*
+											//alternate search method (need to determine how to more efficiently define an iterator at some starting position);
+											let mapIter = dictionaryList.entries();
+											let searchObject;
+											for(searchIndex = 0; searchIndex < dictionaryIndexSearchMin; searchIndex++)
+											{
+												searchObject = mapIter.next().value;
+											}
+											for(searchIndex = dictionaryIndexSearchMin; searchIndex < dictionaryIndexSearchMax; searchIndex++)	//find all words in dictionary with their first c characters equivalent to that of v
+											{
+											*/
+											for(searchIndex = dictionaryIndexSearchMin; searchIndex < dictionaryIndexSearchMax; searchIndex++)	//find all words in dictionary with their first c characters equivalent to that of v
+											{
+												if(searchIndex != dictionaryEntryIndex)
+												{
+													//window.alert("generateTextAbbreviation debug: dictionaryIndexSearchMin: " + dictionaryIndexSearchMin + ", searchIndex = " + searchIndex + ", dictionaryEntryIndex = " + dictionaryEntryIndex);
+
+													let searchKey = dictionaryListKeysArray[searchIndex];	//The key (ie word) at dictionaryEntryIndex
+													let searchObject = dictionaryList.get(searchKey);
+
+													//window.alert("generateTextAbbreviation debug: searchObject.word: " + searchObject.word);
+
+													if(searchObject.word.length >= subWordLength)
+													{
+														let searchObjectWordCompressed = searchObject.word.substring(0, subWordLength);
+
+														if(wordCompressed.localeCompare(searchObjectWordCompressed) == 0)
+														{															
+															if(searchObject.prevalence == dictionaryEntryObject.prevalence)
+															{
+																//if any of these words has same prevalence value than p, then assume it is a word form variation of the lemma of (w)
+															}
+															else if(searchObject.prevalence > dictionaryEntryObject.prevalence)
+															{
+																//if any of these words has a greater prevalence value than p, then assume it is a more common word and so abbreviation cannot occur @subWordLength
+																stillSearchingSubwordLengths = false;
+																
+																//window.alert("(searchObject.prevalence > dictionaryEntryObject.prevalence)");
+															}
+															else 
+															{
+																if(noTolerance)
+																{
+																
+																}
+																else
+																{
+																	if(searchObject.prevalence*tolerance > dictionaryEntryObject.prevalence)
+																	{
+																		//if any of these words has a greater prevalence value than p [with tolerance], then assume it is a similarly common word and so abbreviation cannot occur @subWordLength
+																		stillSearchingSubwordLengths = false;
+
+																		//window.alert("(searchObject.prevalence*tolerance > dictionaryEntryObject.prevalence)");
+																	}
+																}
+															}
+														}
+													}
+												}
+											}
+											/*
+											//alternate search method;
+												searchObject.next().value;
+											}
+											*/
+											if(stillSearchingSubwordLengths)
+											{
+												//window.alert("stillSearchingSubwordLengths!: wordCompressed = " + wordCompressed);
+												
+												foundValidSubword = true;
+												subWordLengthFinal = subWordLength;
+												wordArrayAbbreviated[w] = wordCompressed;
+												foundAtLeastOneAbbreviationAtToleranceLevel = true;
+											}
+										}
+									}
+								}
+							}
+						}				
+
+						//reconstruct abbreviatedContent;
+						let abbreviatedContent = "";
+						for(var i = 0; i< wordArrayAbbreviated.length; i++)
+						{
+							wordOrigFirstChar = wordArray[i].charAt(0);
+							if(wordOrigFirstChar == wordOrigFirstChar.toUpperCase()) 
+							{
+								//wordOrigFirstChar is upper;
+								wordArrayAbbreviated[i] = wordOrigFirstChar + wordArrayAbbreviated[i].substring(1);
+							}
+							
+							abbreviatedContent = abbreviatedContent + wordArrayAbbreviated[i] + delimiterArray[i];
+						}
+						
+						//window.alert("abbreviatedContent = " + abbreviatedContent);
+
+						let finishCondition = false;
+						if(alwaysMinimiseNumCharacters)
+						{
+							if(!foundAtLeastOneAbbreviationAtToleranceLevel || t == maxAmbiguityTolerance)
+							{
+								finishCondition = true;
+							}
+							
+						}
+						else
+						{
+							if(abbreviatedContent.length < maxCharacters)
+							{
+								finishCondition = true;
+							}
+						}
+						if(finishCondition)
+						{
+							if(stillSearchingToleranceLevels)
+							{
+								abbreviatedContentFinal = abbreviatedContent;
+								stillSearchingToleranceLevels = false;
+							}
+						}
+						
+						if(!alwaysMinimiseNumCharacters)
+						{
+							if(limitCharactersField.checked == false)
+							{
+								stillSearchingToleranceLevels = false;	//only use a single tolerance level, and accept this
+							}
+						}
+						
+					}
+
+				}
+
+				targetContents = abbreviatedContentFinal;
+			}
+			
+			targetField.value = targetContents;
+		}
+		
+		function generateWordAndDelimiterArray(sourceContents)
+		{
+			//assumes first character is part of word, and last character is part of punctuation [if not, will pad accordingly]
+			
+			wordArray = [];
+			delimiterArray = [];
+			
+			//https://www.kerryr.net/pioneers/ascii3.htm
+			delimiterCharacters = ["!", "\"", "#", "$", "%", "&", "\'", "(", ")", "*", "+", ",", "-", ".", "/", ":", ";", "<", "=", ">", "?", "@", "[", "\\", "]", "^", "_", "`", "{", "¦", "}", "~", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", " "];	
+			parsingDelimiter = false;
+			delimiterCurrent = "";
+			wordCurrent = "";
+			wordIndex = 0;
+			
+			for(var i=0; i < sourceContents.length; i++)
+			{
+				character = sourceContents.charAt(i);	//sourceContents[i];
+				if(delimiterCharacters.includes(character))
+				{					
+					if(!parsingDelimiter)
+					{
+						parsingDelimiter = true;
+					}
+					delimiterCurrent = delimiterCurrent.concat(character); 
+				}
+				else
+				{					
+					if(parsingDelimiter)
+					{
+						//window.alert("generateWordAndDelimiterArray debug: wordIndex: " + wordIndex + ", wordCurrent = " + wordCurrent + ", delimiterCurrent = " + delimiterCurrent);
+
+						wordArray.push(wordCurrent);
+						delimiterArray.push(delimiterCurrent);
+						
+						parsingDelimiter = false;
+						
+						delimiterCurrent = "";
+						wordCurrent = "";
+						
+						wordIndex++;
+					}
+					
+					wordCurrent = wordCurrent.concat(character);
+				}
+			}
+			
+			//create final entry;
+			wordArray.push(wordCurrent);
+			delimiterArray.push(delimiterCurrent);
+			
+			//window.alert("generateWordAndDelimiterArray debug: wordIndex: " + wordIndex + ", wordCurrent = " + wordCurrent + ", delimiterCurrent = " + delimiterCurrent);
+			
+			return [wordArray, delimiterArray];
+		}
+		
+	</script>	
+</head>
+<body onload="javascriptInitialise()">	
+	<fieldset>
+		<legend>Text Abbreviator</legend>
+		<h2>Tweet Abbreviator</h2>
+		<table width="1200px" cellspacing="2" cellpadding="4" border="0" style="table-layout:fixed;">
+			<tr>
+				<td width="30%" align="right" valign="top">&nbsp;</td>
+				<td width="70%">&nbsp;</td>
+			</tr>
+			<!--
+			if !alwaysMinimiseNumCharacters:
+			<tr id="1row">
+				<td id="7description" align="left" valign="top">Do you wish to limit number of characters?</td>
+				<td><input id="1" type="checkbox" name="1" checked="true" onclick="toggleFieldVisibility(1, 2)" /></td>
+			</tr>
+			<tr id="2row">
+				<td id="62description" align="left" valign="top">Maximum number of characters</td>
+				<td><input id="2" type="text" name="2" value="280" size="3" onclick="NA()" /></td>
+			</tr>
+			-->
+			<tr id="3row">
+				<td id="10description" align="left" valign="top">Original Content (paste into here)</td>
+				<td><textarea id="3" type="textarea" name="3" value="" rows="5" cols="60" onclick="NA()"></textarea></td>
+			</tr>
+			<tr>
+				<td>&nbsp;</td>
+				<td><input type="button" value="Generate Text Abbreviation" alt="Generate Text Abbreviation" onclick="generateTextAbbreviation(3, 4, 1, 2);" style="background-color: #00FF00;" /></td>
+			</tr>
+			<tr id="4row">
+				<td id="10description" align="left" valign="top">Abbreviated Content (copy from here)</td>
+				<td><textarea id="4" type="textarea" name="4" value="" rows="5" cols="60" onclick="NA()" disabled="true" style="background-color: #EEEEEE;"></textarea></td>
+			</tr>
+		</table>
+		</form>		
+	</fieldset>
+</body>
+	
