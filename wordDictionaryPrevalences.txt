@@ -1,4 +1,4 @@
-let wordDictionaryPrevalances = `!allies	2831
+let wordDictionaryPrevalences = `!allies	2831
 'andsome	10
 'andsomes	10
 'appen	56
